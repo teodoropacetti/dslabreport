@@ -1,0 +1,165 @@
+\chapter{Machine Learning}
+
+\section{Framing and Objectives}
+The final section of our work applies supervised machine learning techniques to the SDG 15 dataset in order to achieve two main tasks:
+\begin{itemize}
+    \item Regression: to predict the future value ($t + 1$) of the Red List Index (RLI, indicator 15.5.1) from the SDG 15 indicators available in the year $t$.
+    \item Classification: a complementary task, to predict whether the RLI of a country will worsen next year; a more readily applicable binary formulation for political decision makers.
+\end{itemize}
+The RLI is a composite index that measures the species conservation state on a country level, normalized between 0 and 1, where higher values indicate lower extinction risk. By design, it is an aggregate indicator and a slow changing one: it typically moves only by a few thousandths/hundredths from one year to the next. This fundamental characteristic of the target is the main reason behind many of the results we obtained, and we ought to be aware of it when evaluating the metrics we will see moving forward.
+
+\section{Setup and Data}
+\subsection{Dataset structure}
+This module moves from the preprocessed dataset and its relative data dictionary, keeping the country x year panel structure previously built. Columns include the values of SDG indicators 15.1.2, 15.4.1, 15.5.1, 15.6.1, 15.7.1, 15.8.1, 15.c.1, as well as flag columns ("\_imputed", "\_not\_collected") introduced during pre-processing to distinguish between direct observations from foward-filled or simply missing values.
+\subsection{Target construction}
+For each country, using \texttt{groupby("country") + shift(-1)} (to avoid mixing up time series from different countries), we constructed three variables:
+\begin{itemize}
+    \item \texttt{target\_rli\_next}: the value of RLI at year $t + 1$. The main target for regression.
+    \item \texttt{target\_rli\_delta}: the difference RLI($t + 1$) $-$ RLI($t$), useful for interpretability but not as straight target, as it is redundant once the input RLI($t$) is known.
+    \item \texttt{target\_decline}: binary dummy variable, set to 1 if $\texttt{target\_rli\_delta} < 0$. Used for the classification task.
+\end{itemize}
+The last available year for every country (2024) does not have an observable $t + 1$ and was excluded from training/test, downsizing the dataset from 380 to 342 observations.
+
+\subsection{Feature selection}
+The most peculiar choice of the model is including as features all 25 SDG 15 indicators available at year $t$, including flag columns. The reason behind this choice is that even missing-ness itself might have predictive power: a country that doesn't report data on an environmental governance indicator might be systematically different (in terms of administrative capacity or political priorities) from one that regularly does.
+
+\paragraph{Methodological considerations} Treating missing-ness as signal is a consolidated practice (missing-not-at-random), but it also introduces a potential risk: if the availability of some data is correlated to the year it was collected or with changes in OECD procedures, the model might capture a data collection artifact rather than a causal relationship tied to biodiversity.
+
+We performed no explicit imputation of data upfront: we chose LightGBM as main model exactly because of its native support for missing values when splitting trees, thus avoiding arbitrary imputation on indicators with structurally missing values (15.7.1 and 15.c.1 are available only for 2016-2021; 15.8.1 still has low coverage).
+
+\section{Split}
+\subsection{Temporal split and Baseline}
+\subsubsection{Splitting year by year, not at random}
+We avoided splitting the data randomly, as it would have been typical in an i.i.d context but wrong for panel data: same-country observation in adjacent years show strong autocorrelation, and a random split would leak information from the \textit{future} of a country into the training set. To avoid this, we chose to split year by year, predicting the next year with only the available historical data.
+
+\subsubsection{Naive Persistence Baseline}
+Before evaluating any model, we had to fix a reference point: the RLI of next year will be equal to that of the current year. Given the slow dynamics of RLI, this baseline is all but easy to beat. This is necessary to avoid being misled by metrics such as $R^2$ close to 1.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cc}
+        Metric & Baseline (persistence)\\
+        MAE & 0.00105\\
+        RMSE & 0.00324\\
+        $R^2$ & 0.99892\\
+    \end{tabular}
+    \caption{Baseline vs other metrics}
+    \label{tab:baseline-vs-all}
+\end{table}
+Such an elevated $R^2$ does not indicate a good model here, but it is merely a consequence of the scale and the extremely low variance of the target year over year: any prediction close to the current value will get a high $R^2$. In this case it is more meaningful to consider the error relative to the baseline, not its absolute value.
+
+\section{LightGBM for future RLI regression}
+\subsection{Configuration}
+We trained an LGBMRegressor with regularization-oriented hyperparameters, in accordance to the small size of our sample (228 training examples, 25 features): 300 estimators but low learning rate (0.03), maximum depth 4, num\_leaves 15, min\_child\_samples 5, rows and columns subsampling (0.8/0.8). Such a configuration is reasonable in order to limit overfitting on a small dataset with high relative dimensionality.
+
+\subsection{Test set results}
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{ccc}
+        Metric & Baseline & LightGBM\\
+        MAE & 0.00105 & 0.00289\\
+        RMSE & 0.00324 & 0.00466\\
+        $R^2$ & 0.99892 & 0.99777\\
+    \end{tabular}
+    \caption{Test set results}
+    \label{tab:test-set-results}
+\end{table}
+The model performs consistently worse than the baseline on all three metrics: nearly triple MAE, RMSE around 44\% higher. 
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{ccc}
+        Metric & Baseline & LightGBM\\
+        MAE & 0.00105 & 0.00480\\
+    \end{tabular}
+    \caption{Final holdout validation}
+    \label{tab:final-holdout-validation}
+\end{table}
+On holdout the model error gets even worse than on the test set, while the baseline stays essentially the same. This pattern, a progressive degradation when switching from test to holdout, both after training, is more suggestive of instability rather than textbook overfitting (that typically already shows up when going from training to test). We could speculate that the predictive signal we have available on a one year timescale is too weak and too noisy when compared to the variability of RLI to be captured reliably by a non-linear model on a sample of this size.
+
+\subsection{Baseline comparison interpretation}
+The fact that a sophisticated model lost against a naive baseline is not by itself a failure for our project:
+\begin{itemize}
+    \item Persistence is hard to deal with because RLI is structurally almost a random walk with minimal variation: its one-step autocorrelation is extremely high by design of the index itself.
+    \item A result close to the baseline (or slightly worse) indicates that the additional signal provided by the other 24 SDG 15 indicators, on a one year time horizon, is weak or absent, not that the question isn't necessarily well posed.
+    \item With just 228-342 records and a target variable with minimal variance, it is intrinsically hard to robustly estimate a multivariate non-linear effect: MAE differences in the order of 0.001-0.003 are to be taken with a pinch of salt, without focusing too much on the third/fourth decimal place.
+\end{itemize}
+
+\section{Feature relevance}
+Feature relevance analysis (LightGBM split gain) on our regression model shows an intuitive hierarchy:
+\begin{table}[h]
+    \centering
+    \begin{tabular}{lll}
+        \toprule
+        Rank & Feature & Relevance (split gain) \\
+        \midrule
+        1 & i\_15\_5\_1\_red\_list\_index (current\_RLI) & 902 \\
+        2 & i\_15\_6\_1\_smta\_agreements\_count & 464 \\
+        3 & i\_15\_4\_1\_protected\_mountain\_biod\_pct & 399 \\
+        4 & i\_15\_1\_2\_protected\_freshwater\_pct & 386 \\
+        5 & i\_15\_1\_2\_oecd\_variant\_pct & 345 \\
+        6 & i\_15\_1\_2\_protected\_terrestrial\_pct & 289 \\
+        7 & i\_15\_7\_1\_wildlife\_poached\_pct & 265 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The current RLI vastly dominates the hierarchy (consistently with the high autocorrelation we discussed before). Right after come the protected area indicators (15.1.2, 15.4.1) and the number of SMTA agreements (15.6.1) suggesting that extending protected areas remains the most important factor for species status, rather than governance/policy indicators, which only contributed marginally. Flag columns have low but non-zero relevance, suggesting that missing-ness does indeed carry some, albeit little, information.
+
+\section{Worsening risk classification}
+\subsection{Class imbalance}
+The binary classification formulation (worsens/stable-improving) is motivated by concrete utility for decision makers: a yes/no question is more actionable than a numerical estimate. However, class distribution is heavily skewed in the same way in both training and test sets.
+
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{ccc}
+        Set & Stable/Improving & Worsening\\
+        Training & 90.4\% & 9.6\%\\
+        Test & 90.8\% & 9.2\%\\
+    \end{tabular}
+    \caption{Class imbalance}
+    \label{tab:class-imbalance}
+\end{table}
+We handled this issue by setting \texttt{class\_weight='balanced'} inside the LGBMClassifier.
+
+\subsection{Results}
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{ccccc}
+        Class & Precision & Recall & F1-score & Support\\
+        Stable/Improving & 0.91 & 0.91 & 0.91 & 69\\
+        Worsening & 0.14 & 0.14 & 0.14 & 7\\
+    \end{tabular}
+    \caption{Overall accuracy: 0.842}
+    \label{tab:classification-results}
+\end{table}
+Accuracy seems to be high, but we must remember that this is almost entirely a consequence of class imbalance and a classifier that always predicted "Stable/Improving" would already get 90.8\% accuracy on test set. We must instead focus on minority class recall (Worsening), which only reached 0.14, which is far too low for any early-warning system.
+
+The impact of balancing classes here is limited by the fact that there are only 7 positive cases in the test set (and approximately 22 in training), and so the sample uncertainty becomes far too large to handle. Numbers such as 0.14/0.91 must be read as indicative of a tendency (difficulty in isolating signal), not as precise point estimates.
+
+\section{LigtGBM vs Random Forest and the impact of imputing missing values}
+In this section we compare LightGBM with Random Forest to highlight the impact of imputing missing values.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cccc}
+        Model & MAE & RMSE & $R^2$\\
+        Baseline & 0.00105 & 0.00324 & 0.99892\\
+        Random Forest (imputed) & 0.00105 & 0.00324 & 0.99892\\
+        LightGBM (native NaN) & 0.00289 & 0.00466 & 0.99778\\
+    \end{tabular}
+    \caption{Random Forest vs LightGBM}
+    \label{tab:light-vs-RF}
+\end{table}
+Random Forest show a slightly better MAE and a slightly worse RMSE, both within sample noise, and both below the baseline. Native NaN handling does not provide any advantage in this scenario. LightGBM remains a more elegant solution, but not from a performance perspective.
+
+\section{Limitations and final considerations}
+\begin{itemize}
+    \item Small sample size: 38 OECD countries, 10 year window; training and test set are only a few hundred entries. Metrics must be evaluated carefully and do not provide robust generalization estimates.
+    \item Slow moving target: RLI moves slowly by design. Baseline proves hard to beat. This is likely due to a weak signal on this timescale.
+    \item Discontinued indicators: poaching indicators are only available in the period 2016-2021.
+\end{itemize}
+With a one-year time horizon, the SDG 15 indicators do not offer a predictive signal strong enough to outperform a persistence baseline for future Red List Index, and neither to reliably recognize worsening cases.
