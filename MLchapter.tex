@@ -52,6 +52,7 @@ Such an elevated $R^2$ does not indicate a good model here, but it is merely a c
 \subsection{Configuration}
 We trained an LGBMRegressor with regularization-oriented hyperparameters, in accordance to the small size of our sample (228 training examples, 25 features): 300 estimators but low learning rate (0.03), maximum depth 4, num\_leaves 15, min\_child\_samples 5, rows and columns subsampling (0.8/0.8). Such a configuration is reasonable in order to limit overfitting on a small dataset with high relative dimensionality.
 
+
 \subsection{Test set results}
 
 \begin{table}[h!]
