@@ -1,5 +1,7 @@
 \chapter{Predicting Red List Index with Machine Learning}
 
+\section{Methodology}
+The target is the future RLI by country (within group time shift), split on a yearly basis, not at random to avoid leakage: training from 2015 to 2020, testin on 2021-2022, holdout from 2023 to 2024. As predictors we used all 25 SDG 15 indicators available, including flag columns (missingness as signal). We compared a naive persistence baseline, a LGBMRegressor/Classifier (\texttt{class\_weight='balanced' to handle class imbalance)} and Random Forest on median imputed data. Metrics: MAE/RMSE/$R^2$ for regression, always relative to baseline; accuracy, precision/recall/F1 and confusion matrix for classification, focusing on minority class recall. Feature relevance via split gain for interpretation.
 \section{Framing and Objectives}
 The final section of our work applies supervised machine learning techniques to the SDG 15 dataset in order to achieve two main tasks:
 \begin{itemize}
@@ -157,10 +159,9 @@ In this section we compare LightGBM with Random Forest to highlight the impact o
 \end{table}
 Random Forest show a slightly better MAE and a slightly worse RMSE, both within sample noise, and both below the baseline. Native NaN handling does not provide any advantage in this scenario. LightGBM remains a more elegant solution, but not from a performance perspective.
 
-\section{Limitations and final considerations}
-\begin{itemize}
-    \item Small sample size: 38 OECD countries, 10 year window; training and test set are only a few hundred entries. Metrics must be evaluated carefully and do not provide robust generalization estimates.
-    \item Slow moving target: RLI moves slowly by design. Baseline proves hard to beat. This is likely due to a weak signal on this timescale.
-    \item Discontinued indicators: poaching indicators are only available in the period 2016-2021.
-\end{itemize}
-With a one-year time horizon, the SDG 15 indicators do not offer a predictive signal strong enough to outperform a persistence baseline for future Red List Index, and neither to reliably recognize worsening cases.
+\section{Results}
+The naive persistence baseline has proven to be an extremely competitive benchmark (MAE = 0.00105; RMSE = 0.00324; $R^2$ = 0.99892 on test set) due to the low variance year over year of RLI. LightGBM regression could not outperform it (MAE = 0.00289 e RMSE = 0.00466 on test set) and the gap further widens on the final holdout (MAE = 0.00480 against 0.00105 from baseline) indicating a weak predictive signal rather than overfitting. Comparison with Random Forest confirms this scenario: MAE = 0.00272 and $R^2$ = 0.99745, comparable with LightGBM and both worse than baseline. The argument for native NaN handling providing an advantage did not find experimental support.
+
+Feature relevance analysis highlights the current RLI as the dominant predictor, followed by protected area indicators; governance indicators and flag columns contributed only marginally.
+
+Worsening risk classification on highly unbalanced classes reached 84.2\% accuracy, worse than a naive classifier that would only predict the majority class (90.8\%). Minority class recall was only 0.14 while being 0.91 on majority: the model correctly identified only 1 worsening case every 7, and as such is not fit for early warning systems in its current state.
