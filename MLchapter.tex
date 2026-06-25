@@ -1,4 +1,53 @@
+  UW PICO 5.09                           New Buffer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                               [ Read 167 lines ]
+^G Get Help  ^O WriteOut  ^R Read File ^Y Prev Pg   ^K Cut Text  ^C Cur Pos
+^X Exit      ^J Justify   ^W Where is  ^V Next Pg   ^U UnCut Text^T To Spell
+  UW PICO 5.09                      File: mlchapter.tex
+
 \chapter{Predicting Red List Index with Machine Learning}
+
+\section{Methodology}
+The target is the future RLI by country (within group time shift), split on a y$
+\section{Framing and Objectives}
+The final section of our work applies supervised machine learning techniques to$
+\begin{itemize}
+    \item Regression: to predict the future value ($t + 1$) of the Red List Ind$
+    \item Classification: a complementary task, to predict whether the RLI of a$
+\end{itemize}
+The RLI is a composite index that measures the species conservation state on a $
+
+\section{Setup and Data}
+\subsection{Dataset structure}
+This module moves from the preprocessed dataset and its relative data dictionar$
+\subsection{Target construction}
+For each country, using \texttt{groupby("country") + shift(-1)} (to avoid mixin$
+\begin{itemize}
+    \item \texttt{target\_rli\_next}: the value of RLI at year $t + 1$. The mai$
+    \item \texttt{target\_rli\_delta}: the difference RLI($t + 1$) $-$ RLI($t$)$
+
+^G Get Help  ^O WriteOut  ^R Read File ^Y Prev Pg   ^K Cut Text  ^C Cur Pos
+^X Exit      ^J Justify   ^W Where is  ^V Next Pg   ^U UnCut Text^T To Spell\chapter{Predicting Red List Index with Machine Learning}
 
 \section{Methodology}
 The target is the future RLI by country (within group time shift), split on a yearly basis, not at random to avoid leakage: training from 2015 to 2020, testin on 2021-2022, holdout from 2023 to 2024. As predictors we used all 25 SDG 15 indicators available, including flag columns (missingness as signal). We compared a naive persistence baseline, a LGBMRegressor/Classifier (\texttt{class\_weight='balanced' to handle class imbalance)} and Random Forest on median imputed data. Metrics: MAE/RMSE/$R^2$ for regression, always relative to baseline; accuracy, precision/recall/F1 and confusion matrix for classification, focusing on minority class recall. Feature relevance via split gain for interpretation.
